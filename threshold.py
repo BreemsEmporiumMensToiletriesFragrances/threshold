@@ -89,10 +89,9 @@ def text_to_net (fname, **kwargs):
 
 
 # From networx Graph, create adjacency matrices as sparse CSR objects.
-def graph_to_csr (lG,dtype):
+def graph_to_csr (lG, dtype, lnodes):
     lAs = []
-    # Get nodelist from first graph, since they all contain all nodes.
-    lnodes = set(lG[0].nodes())
+
     for G in lG:
         A = nx.adjacency_matrix(G, nodelist=lnodes)
         lAs.append(csr_matrix(A, dtype=dtype))
@@ -104,7 +103,7 @@ def graph_to_csr (lG,dtype):
 class tnet:
     
     # Class constructor. Additional optional keywords: directed (bool), separator (str).
-    def __init__ (self, myn, period=None, dtype='float64', **kwargs ):
+    def __init__ (self, myn, dattr=None, period=None, dtype='float64', **kwargs ):
         
         self.lG = None
         self.T = None
@@ -155,11 +154,24 @@ class tnet:
             self.weighted = True
         else:
             self.weighted = False
+        
+        # List of the nodes. It will be used like this for adj matrices
+        self.lnodes = set(self.lG[0].nodes())
+        
+        # Build the list of attributes, that find_threshold will use
+        self.vattr = None
+        if dattr != None:
+            self.vattr = []
+            for x in self.lnodes:
+                if x in dattr:
+                    self.vattr.append(dattr[x])
+                else:
+                    self.vattr.append(None)
     
     
     def getMatrices (self):
         if self.lA == None:
-            self.lA = graph_to_csr(self.lG, self.dtype)
+            self.lA = graph_to_csr(self.lG, self.dtype, self.lnodes)
         return self.lA
     
     
@@ -183,13 +195,21 @@ class tnet:
         else:
             spu = 'False'
         spoutp += 'weighted : ' + spu + '\n'
-        #
+        
         # Whether matrices are loaded.
         if self.lA == None: 
             spu = 'not loaded'
         else:
             spu = 'loaded'
         spoutp += 'adjacency matrices : ' + spu + '\n'
+        
+        # Wether there are node attributes
+        if self.vattr == None:
+            spu = 'no node attributes given'
+        else:
+            spu = 'node attributes present'
+        spoutp += spu + '\n'
+        
         return spoutp
     
     
@@ -295,7 +315,24 @@ def power_spectral_radius_weighted(ladda, mu, lA, N, T, valumax=1000, stabint=10
 
 
 # Function for computing the threshold. Additional optional keywords: weighted (bool), findroot (='brentq' or ='bisect'), xtol, rtol (for the last two, see scipy brentq, bisect documentation)
-def find_threshold (mu, R, vmin=0.001, vmax=0.999, maxiter=50, **kwargs):
+def find_threshold (dmu, R, vmin=0.001, vmax=0.999, maxiter=50, **kwargs):
+
+    mu = np.empty(shape=(R.N,), dtype=R.dtype)
+    
+    # Single mu value
+    if type(dmu) != dict:
+        mu.fill(dmu)
+        
+    # different mu values
+    else:
+        assert R.vattr != None, 'Heterogeneous mu needs node attributes.'
+        assert 'default' in dmu, 'mu dictionary must contain "default" key.'
+        for i in range(R.N):
+            if R.vattr[i] in dmu:
+                mu[i] = dmu[R.vattr[i]]
+            else:
+                mu[i] = dmu['default']
+            
     
     if 'weighted' in kwargs:
         weighted = kwargs['weighted']
